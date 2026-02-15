@@ -1,6 +1,6 @@
-# Interview Prep Bot
+# BTKDeneme Interview Prep Bot
 
-Telegram tabanli mulakat hazirlik botu.
+`interview-prep-bot-btkdeneme` reposu icin Telegram tabanli mulakat hazirlik botu.
 
 Kullanici `rol + deneyim` gonderir, bot su ciktilari uretir:
 - 10 mulakat sorusu
