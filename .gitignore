@@ -1,0 +1,23 @@
+# Environment and secrets
+.env
+.env.local
+.env.*.local
+.dev.vars
+
+# Node
+node_modules/
+npm-debug.log*
+
+# Build/deploy artifacts
+*.tar.gz
+dist/
+build/
+
+# OS/editor
+.DS_Store
+Thumbs.db
+.idea/
+.vscode/
+
+# Cloudflare
+.wrangler/

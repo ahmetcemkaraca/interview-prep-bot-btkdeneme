@@ -1,0 +1,14 @@
+{
+  "projectId": "btk",
+  "projectName": "interview-prep-bot",
+  "functions": [
+    {
+      "$id": "telegram_webhook",
+      "name": "telegram-webhook",
+      "runtime": "node-20.0",
+      "path": "appwrite/functions/telegram-webhook",
+      "entrypoint": "src/index.js",
+      "commands": "npm install"
+    }
+  ]
+}
