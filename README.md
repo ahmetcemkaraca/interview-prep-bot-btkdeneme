@@ -15,6 +15,7 @@ Kullanici `rol + deneyim` gonderir, bot su ciktilari uretir:
 - `n8n` webhook orchestration ve relay katmani
 - `appwrite/functions/telegram-webhook` asil is kurali ve AI akisi
 - `appwrite/schemas` tablo/collection semalari
+- kullanici hafizasi (`memories`) Appwrite'da tutulur ve 3000 token ile sinirlanir
 
 Alternatif relay (opsiyonel):
 - `Telegram -> Cloudflare Worker Relay -> Appwrite Function`
@@ -70,6 +71,7 @@ Temel degiskenler:
 - `APPWRITE_COLLECTION_SESSIONS`
 - `APPWRITE_COLLECTION_QUESTIONS`
 - `APPWRITE_COLLECTION_PLANS`
+- `APPWRITE_COLLECTION_MEMORIES`
 - `TELEGRAM_BOT_TOKEN`
 - `TELEGRAM_WEBHOOK_SECRET`
 - `OPENROUTER_API_KEY`
@@ -79,6 +81,7 @@ Temel degiskenler:
 Rate limit:
 - `RATE_LIMIT_WINDOW_SECONDS` (default: `60`)
 - `RATE_LIMIT_MAX_REQUESTS` (default: `5`)
+- `MEMORY_MAX_TOKENS` (default: `3000`)
 
 ## Commands
 

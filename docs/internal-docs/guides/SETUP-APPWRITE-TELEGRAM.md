@@ -8,6 +8,7 @@ Create database and collections using the schema docs:
 - `appwrite/schemas/sessions.md`
 - `appwrite/schemas/questions.md`
 - `appwrite/schemas/plans.md`
+- `appwrite/schemas/memories.md`
 
 ## 2. Function deployment
 - Source: `appwrite/functions/telegram-webhook`

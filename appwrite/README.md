@@ -20,11 +20,14 @@ Create these resources in Appwrite Console or via CLI/API:
 
 - Database: `interview_prep`
 - Collections: `sessions`, `questions`, `plans`
+- Collections: `sessions`, `questions`, `plans`, `memories`
 
 Schema details are in:
 - `appwrite/schemas/sessions.md`
 - `appwrite/schemas/questions.md`
 - `appwrite/schemas/plans.md`
+- `appwrite/schemas/plans.md`
+- `appwrite/schemas/memories.md`
 
 ## 3) Function deployment
 

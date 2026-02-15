@@ -47,6 +47,19 @@ function getRateLimitConfig() {
   };
 }
 
+function estimateTokens(text) {
+  return Math.max(1, Math.ceil(String(text || "").length / 4));
+}
+
+function tokenize(text) {
+  return String(text || "")
+    .toLowerCase()
+    .replace(/[^a-z0-9\s\u00c0-\u024f\u1e00-\u1eff]/gi, " ")
+    .split(/\s+/)
+    .filter(Boolean)
+    .slice(0, 24);
+}
+
 function normalizeArrayField(value, fallback = []) {
   if (Array.isArray(value)) return value.map((x) => String(x).trim()).filter(Boolean);
   if (typeof value === "string") {
@@ -103,7 +116,10 @@ function normalizeAiOutput(raw) {
       practice_instructions:
         String(raw?.daily_plan?.practice_instructions || "").trim() ||
         "Bugun her soru icin 3 dakika dusun, 2 dakika yuksek sesle cevapla, 1 dakika oz-degerlendirme yap."
-    }
+    },
+    memory_summary:
+      String(raw?.memory_summary || "").trim() ||
+      "Kullanici backend odakli mulakat hazirligi yapiyor; teknik temeller, sistem tasarimi ve davranissal sorulara dengeli calismali."
   };
 }
 
@@ -153,7 +169,7 @@ async function telegramSendMessage(token, chatId, text) {
   }
 }
 
-async function generateWithOpenRouter(input) {
+async function generateWithOpenRouter(input, memoryContext = "") {
   const apiKey = required("OPENROUTER_API_KEY");
   const model = env.OPENROUTER_MODEL || "openrouter/aurora-alpha";
   const disableWebSearch = String(env.OPENROUTER_DISABLE_WEB_SEARCH || "true").toLowerCase() !== "false";
@@ -178,14 +194,18 @@ async function generateWithOpenRouter(input) {
     '  "daily_plan": {',
     '    "today_question_idxs": [1,2,3],',
     '    "practice_instructions": "..."',
-    "  }",
+    "  },",
+    '  "memory_summary": "1-2 cumlelik, kullanici baglamini tasiyan ozet"',
     "}",
     "Generate exactly 10 questions.",
     "daily_plan.today_question_idxs must contain exactly 3 distinct numbers from 1..10.",
     "Use Turkish language for content."
   ].join("\n");
 
-  const userPrompt = `Role: ${input.role}\nExperience: ${input.experience}\nFocus: inferred from input if present.`;
+  const memoryBlock = memoryContext
+    ? `\nPrevious memory context (use only if relevant):\n${memoryContext}`
+    : "";
+  const userPrompt = `Role: ${input.role}\nExperience: ${input.experience}\nFocus: inferred from input if present.${memoryBlock}`;
 
   const payload = {
     model,
@@ -331,6 +351,79 @@ async function getRecentSessionCount(databases, chatId, windowSeconds) {
   return Number(result?.total || 0);
 }
 
+function getMemoryCollectionId() {
+  return env.APPWRITE_COLLECTION_MEMORIES || "memories";
+}
+
+async function listUserMemories(databases, chatId) {
+  try {
+    const result = await databases.listDocuments(required("APPWRITE_DATABASE_ID"), getMemoryCollectionId(), [
+      Query.equal("chat_id", String(chatId)),
+      Query.orderDesc("$createdAt"),
+      Query.limit(100)
+    ]);
+    return result.documents || [];
+  } catch {
+    return [];
+  }
+}
+
+function buildRelevantMemoryContext(memories, userText) {
+  const current = new Set(tokenize(userText));
+  const scored = memories.map((m) => {
+    const kws = tokenize(m.keywords || m.summary || "");
+    let overlap = 0;
+    for (const k of kws) {
+      if (current.has(k)) overlap += 1;
+    }
+    return { overlap, doc: m };
+  });
+
+  scored.sort((a, b) => b.overlap - a.overlap);
+  const relevant = scored.filter((x) => x.overlap > 0).map((x) => x.doc);
+  const fallback = memories.slice(0, 5);
+  const pick = relevant.length > 0 ? relevant.slice(0, 8) : fallback;
+
+  const maxContextTokens = 1200;
+  let used = 0;
+  const selected = [];
+  for (const m of pick) {
+    const t = Number(m.tokens || estimateTokens(m.summary || ""));
+    if (used + t > maxContextTokens) continue;
+    used += t;
+    if (m.summary) selected.push(String(m.summary));
+  }
+
+  return selected.join("\n- ") ? `- ${selected.join("\n- ")}` : "";
+}
+
+async function saveUserMemory(databases, chatId, summary) {
+  const tokens = estimateTokens(summary);
+  const keywords = tokenize(summary).join(" ");
+  await databases.createDocument(required("APPWRITE_DATABASE_ID"), getMemoryCollectionId(), ID.unique(), {
+    chat_id: String(chatId),
+    summary: String(summary),
+    tokens,
+    keywords
+  });
+}
+
+async function trimUserMemory(databases, chatId) {
+  const maxTokens = Number(env.MEMORY_MAX_TOKENS || "3000");
+  if (!Number.isFinite(maxTokens) || maxTokens <= 0) return;
+
+  const memories = await listUserMemories(databases, chatId);
+  let total = memories.reduce((acc, m) => acc + Number(m.tokens || 0), 0);
+  if (total <= maxTokens) return;
+
+  const oldestFirst = [...memories].sort((a, b) => new Date(a.$createdAt) - new Date(b.$createdAt));
+  for (const doc of oldestFirst) {
+    if (total <= maxTokens) break;
+    await databases.deleteDocument(required("APPWRITE_DATABASE_ID"), getMemoryCollectionId(), doc.$id);
+    total -= Number(doc.tokens || 0);
+  }
+}
+
 export default async ({ req, res, log, error }) => {
   const startedAt = Date.now();
   let parseMs = 0;
@@ -456,7 +549,7 @@ export default async ({ req, res, log, error }) => {
       );
 
       await telegramSendMessage(token, chatId, "Son oturum tekrar uretildi. /plan ile gorebilirsin.");
-      return res.json({ ok: true, retried_session_id: latestSession.$id });
+      return res.json({ ok: true, retried_session_id: latestSession.$id, chat_id: String(chatId), memory_summary: ai.memory_summary });
     }
 
     if (hasUpdateId) {
@@ -504,15 +597,23 @@ export default async ({ req, res, log, error }) => {
       status: "received"
     });
     sessionId = session.$id;
+    let generatedMemorySummary = "";
+    const userMemories = await listUserMemories(databases, chatId);
+    const memoryContext = buildRelevantMemoryContext(userMemories, text);
 
     try {
       const aiStartedAt = Date.now();
-      const ai = await generateWithOpenRouter(parsedInput);
+      const ai = await generateWithOpenRouter(parsedInput, memoryContext);
+      generatedMemorySummary = ai.memory_summary || "";
       aiMs = Date.now() - aiStartedAt;
 
       const writeStartedAt = Date.now();
       await saveQuestions(databases, session.$id, ai.questions);
       await savePlan(databases, session.$id, chatId, ai.daily_plan || {});
+      if (generatedMemorySummary) {
+        await saveUserMemory(databases, chatId, generatedMemorySummary);
+        await trimUserMemory(databases, chatId);
+      }
 
       await databases.updateDocument(
         required("APPWRITE_DATABASE_ID"),
@@ -546,7 +647,7 @@ export default async ({ req, res, log, error }) => {
       `obs session=${session.$id} update=${updateId} message=${messageId} chat=${chatId} parse_ms=${parseMs} ai_ms=${aiMs} write_ms=${writeMs} total_ms=${totalMs}`
     );
 
-    return res.json({ ok: true, session_id: session.$id });
+    return res.json({ ok: true, session_id: session.$id, chat_id: String(chatId), memory_summary: generatedMemorySummary });
   } catch (e) {
     const totalMs = Date.now() - startedAt;
     error(
