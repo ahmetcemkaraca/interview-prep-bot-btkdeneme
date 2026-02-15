@@ -1,0 +1,104 @@
+{
+  "name": "BTK Telegram -> Appwrite Relay",
+  "nodes": [
+    {
+      "id": "webhook-node",
+      "name": "Telegram Webhook",
+      "type": "n8n-nodes-base.webhook",
+      "typeVersion": 2,
+      "parameters": {
+        "path": "telegram-webhook",
+        "httpMethod": "POST",
+        "responseMode": "onReceived",
+        "options": {}
+      },
+      "position": [-520, 0],
+      "webhookId": "btk-telegram-webhook"
+    },
+    {
+      "id": "forward-node",
+      "name": "Forward To Appwrite",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.2,
+      "continueOnFail": true,
+      "retryOnFail": true,
+      "maxTries": 3,
+      "waitBetweenTries": 2000,
+      "parameters": {
+        "method": "POST",
+        "url": "https://<APPWRITE_ENDPOINT>/v1/functions/telegram_webhook/executions",
+        "sendHeaders": true,
+        "headerParameters": {
+          "parameters": [
+            { "name": "X-Appwrite-Project", "value": "<APPWRITE_PROJECT_ID>" },
+            { "name": "X-Appwrite-Key", "value": "<APPWRITE_API_KEY>" },
+            { "name": "Content-Type", "value": "application/json" }
+          ]
+        },
+        "sendBody": true,
+        "specifyBody": "json",
+        "jsonBody": "={{ { path: '/', method: 'POST', headers: { 'x-telegram-bot-api-secret-token': $json.headers['x-telegram-bot-api-secret-token'] || '' }, body: JSON.stringify($json.body || {}) } }}",
+        "options": {}
+      },
+      "position": [-180, 0]
+    },
+    {
+      "id": "if-error-node",
+      "name": "Relay Error?",
+      "type": "n8n-nodes-base.if",
+      "typeVersion": 2.2,
+      "parameters": {
+        "conditions": {
+          "options": {
+            "caseSensitive": false,
+            "leftValue": "",
+            "typeValidation": "strict",
+            "version": 2
+          },
+          "conditions": [
+            {
+              "id": "cond-relay-error-response",
+              "leftValue": "={{$json.responseBody || ''}}",
+              "rightValue": "",
+              "operator": { "type": "string", "operation": "notEmpty" }
+            }
+          ],
+          "combinator": "and"
+        },
+        "options": {}
+      },
+      "position": [70, 0]
+    },
+    {
+      "id": "alert-node",
+      "name": "Send Admin Alert",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.2,
+      "continueOnFail": true,
+      "parameters": {
+        "method": "POST",
+        "url": "https://api.telegram.org/bot<TELEGRAM_BOT_TOKEN>/sendMessage",
+        "sendBody": true,
+        "specifyBody": "json",
+        "jsonBody": "={{ { chat_id: <ADMIN_CHAT_ID>, text: '[n8n] Appwrite relay error: ' + ($json.error?.message || $json.error || 'unknown') } }}",
+        "options": {}
+      },
+      "position": [320, -120]
+    }
+  ],
+  "connections": {
+    "Telegram Webhook": {
+      "main": [[{ "node": "Forward To Appwrite", "type": "main", "index": 0 }]]
+    },
+    "Forward To Appwrite": {
+      "main": [[{ "node": "Relay Error?", "type": "main", "index": 0 }]]
+    },
+    "Relay Error?": {
+      "main": [
+        [{ "node": "Send Admin Alert", "type": "main", "index": 0 }],
+        []
+      ]
+    }
+  },
+  "settings": {}
+}
