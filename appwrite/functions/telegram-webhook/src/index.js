@@ -117,6 +117,7 @@ function normalizeAiOutput(raw) {
         String(raw?.daily_plan?.practice_instructions || "").trim() ||
         "Bugun her soru icin 3 dakika dusun, 2 dakika yuksek sesle cevapla, 1 dakika oz-degerlendirme yap."
     },
+    needs_memory_context: Boolean(raw?.needs_memory_context),
     memory_summary:
       String(raw?.memory_summary || "").trim() ||
       "Kullanici backend odakli mulakat hazirligi yapiyor; teknik temeller, sistem tasarimi ve davranissal sorulara dengeli calismali."
@@ -195,11 +196,13 @@ async function generateWithOpenRouter(input, memoryContext = "") {
     '    "today_question_idxs": [1,2,3],',
     '    "practice_instructions": "..."',
     "  },",
+    '  "needs_memory_context": true,',
     '  "memory_summary": "1-2 cumlelik, kullanici baglamini tasiyan ozet"',
     "}",
     "Generate exactly 10 questions.",
     "daily_plan.today_question_idxs must contain exactly 3 distinct numbers from 1..10.",
-    "Use Turkish language for content."
+    "Use Turkish language for content.",
+    "Set needs_memory_context=true only if previous conversation memory would improve answer quality."
   ].join("\n");
 
   const memoryBlock = memoryContext
@@ -443,6 +446,7 @@ export default async ({ req, res, log, error }) => {
     }
 
     const body = typeof req.body === "string" ? JSON.parse(req.body) : req.body;
+    const memoryContextFromN8n = String(body?.memory_context || "").trim();
     const hasUpdateId = typeof body?.update_id !== "undefined";
     updateId = String(body?.update_id ?? "-");
     const message = body?.message;
@@ -598,13 +602,16 @@ export default async ({ req, res, log, error }) => {
     });
     sessionId = session.$id;
     let generatedMemorySummary = "";
+    let needsMemoryContext = false;
     const userMemories = await listUserMemories(databases, chatId);
-    const memoryContext = buildRelevantMemoryContext(userMemories, text);
+    const fallbackMemoryContext = buildRelevantMemoryContext(userMemories, text);
+    const memoryContext = memoryContextFromN8n || fallbackMemoryContext;
 
     try {
       const aiStartedAt = Date.now();
       const ai = await generateWithOpenRouter(parsedInput, memoryContext);
       generatedMemorySummary = ai.memory_summary || "";
+      needsMemoryContext = Boolean(ai.needs_memory_context);
       aiMs = Date.now() - aiStartedAt;
 
       const writeStartedAt = Date.now();
@@ -614,7 +621,6 @@ export default async ({ req, res, log, error }) => {
         await saveUserMemory(databases, chatId, generatedMemorySummary);
         await trimUserMemory(databases, chatId);
       }
-
       await databases.updateDocument(
         required("APPWRITE_DATABASE_ID"),
         required("APPWRITE_COLLECTION_SESSIONS"),
@@ -647,7 +653,13 @@ export default async ({ req, res, log, error }) => {
       `obs session=${session.$id} update=${updateId} message=${messageId} chat=${chatId} parse_ms=${parseMs} ai_ms=${aiMs} write_ms=${writeMs} total_ms=${totalMs}`
     );
 
-    return res.json({ ok: true, session_id: session.$id, chat_id: String(chatId), memory_summary: generatedMemorySummary });
+    return res.json({
+      ok: true,
+      session_id: session.$id,
+      chat_id: String(chatId),
+      memory_summary: generatedMemorySummary,
+      needs_memory_context: needsMemoryContext
+    });
   } catch (e) {
     const totalMs = Date.now() - startedAt;
     error(
