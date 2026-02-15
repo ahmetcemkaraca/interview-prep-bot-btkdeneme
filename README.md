@@ -10,11 +10,14 @@ Kullanici `rol + deneyim` gonderir, bot su ciktilari uretir:
 
 ## Architecture
 
-`Telegram -> Cloudflare Worker Relay -> Appwrite Function -> Appwrite DB -> OpenRouter -> Telegram`
+`Telegram -> n8n Webhook -> Appwrite Function -> Appwrite DB -> OpenRouter -> Telegram`
 
-- `relay/` Telegram webhook isteklerini Appwrite execution endpoint'ine iletir
+- `n8n` webhook orchestration ve relay katmani
 - `appwrite/functions/telegram-webhook` asil is kurali ve AI akisi
 - `appwrite/schemas` tablo/collection semalari
+
+Alternatif relay (opsiyonel):
+- `Telegram -> Cloudflare Worker Relay -> Appwrite Function`
 
 ## Features
 
@@ -51,11 +54,11 @@ relay/
 3) Function env var'larini set et
 - tum liste: `.env.example`
 
-4) Worker relay deploy et
-- detaylar: `relay/README.md`
+4) n8n relay workflow kur
+- detaylar: `docs/internal-docs/guides/N8N-INTEGRATION.md`
 
 5) Telegram webhook bagla
-- `setWebhook` komutu: `relay/README.md`
+- webhook URL: `https://<n8n-domain>/webhook/telegram-webhook`
 
 ## Environment Variables
 
