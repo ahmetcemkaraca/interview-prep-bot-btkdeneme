@@ -74,6 +74,7 @@ Temel degiskenler:
 - `TELEGRAM_WEBHOOK_SECRET`
 - `OPENROUTER_API_KEY`
 - `OPENROUTER_MODEL`
+- `OPENROUTER_DISABLE_WEB_SEARCH` (default: `true`)
 
 Rate limit:
 - `RATE_LIMIT_WINDOW_SECONDS` (default: `60`)
